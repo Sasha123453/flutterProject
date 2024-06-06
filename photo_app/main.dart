@@ -1,12 +1,13 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as path;
+import 'package:shared_preferences/shared_preferences.dart';
 
 String? _token = "";
-final String address = "http://localhost:8080";
+final String address = "https://97f3de29c550d1.lhr.life";
+
 void main() {
   runApp(MyApp());
 }
@@ -171,44 +172,40 @@ class PhotoListPage extends StatefulWidget {
 }
 
 class _PhotoListPageState extends State<PhotoListPage> {
-  List<String> _photos = [];
+  List<Map<String, dynamic>> _photos = [];
   final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
+    _loadToken();
+  }
+
+  Future<void> _loadToken() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _token = prefs.getString('token') ?? "";
+    });
     _fetchPhotos();
   }
 
   Future<void> _fetchPhotos() async {
+    final response = await http.get(
+      Uri.parse('$address/photo'),
+      headers: {
+        'Authorization': 'Bearer $_token',
+      },
+    );
 
-  final response = await http.get(
-    Uri.parse('$address/photo'),
-    headers: {
-      'Authorization': 'Bearer $_token',
-    },
-  );
-
-  if (response.statusCode == 200) {
-    var responseDecoded = jsonDecode(response.body);
-    if (responseDecoded != null) {
-      final List<dynamic> photoList = responseDecoded;
-      if (photoList.isNotEmpty) {
-        setState(() {
-          _photos = photoList.cast<String>();
-        });
-      } else {
-        print('No photos available');
-      }
+    if (response.statusCode == 200) {
+      final List<dynamic> photoList = jsonDecode(response.body);
+      setState(() {
+        _photos = photoList.cast<Map<String, dynamic>>();
+      });
     } else {
-      print('Response is null');
+      print('Failed to load photos');
     }
-  } else {
-    print('Failed to load photos');
   }
-}
-
-
 
   Future<void> _uploadPhoto() async {
     final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
@@ -220,7 +217,13 @@ class _PhotoListPageState extends State<PhotoListPage> {
       Uri.parse('$address/photo/post'),
     );
     request.headers['Authorization'] = 'Bearer $_token';
-    request.files.add(await http.MultipartFile.fromPath('file', pickedFile.path));
+    var filePath = pickedFile.path;
+    var file = await http.MultipartFile.fromPath(
+      'file',
+      filePath,
+      filename: path.basename(filePath),
+    );
+    request.files.add(file);
 
     var response = await request.send();
 
@@ -229,6 +232,63 @@ class _PhotoListPageState extends State<PhotoListPage> {
     } else {
       print('Failed to upload photo');
     }
+  }
+
+  Future<void> _likePhoto(int photoId) async {
+    final response = await http.post(
+      Uri.parse('$address/photo/like?photoId=$photoId'),
+      headers: {
+        'Authorization': 'Bearer $_token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      print('Photo liked successfully');
+    } else {
+      print('Failed to like photo');
+    }
+  }
+
+  Future<void> _commentOnPhoto(int photoId) async {
+    final TextEditingController _commentController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Post a Comment'),
+          content: TextField(
+            controller: _commentController,
+            decoration: InputDecoration(labelText: 'Comment'),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () async {
+                final response = await http.post(
+                  Uri.parse('$address/photo/post/comment'),
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer $_token',
+                  },
+                  body: jsonEncode({
+                    'photo_id': photoId,
+                    'text': _commentController.text,
+                  }),
+                );
+
+                if (response.statusCode == 200) {
+                  Navigator.of(context).pop();
+                  print('Comment posted successfully');
+                } else {
+                  print('Failed to post comment');
+                }
+              },
+              child: Text('Post'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -249,14 +309,27 @@ class _PhotoListPageState extends State<PhotoListPage> {
         ),
         itemCount: _photos.length,
         itemBuilder: (context, index) {
-          return Image.network(
-            '$address/photo/path?path=${_photos[index]}',
-            headers: {
-              'Authorization': 'Bearer ${_token}',
-            },
-            errorBuilder: (BuildContext context, Object exception, StackTrace? stackTrace) {
-              return Text('Can not load an image');
-            },
+          return GestureDetector(
+            onTap: () => _likePhoto(_photos[index]["id"]),
+            child: GridTile(
+              child: Image.network(
+                '$address/photo/path?path=${_photos[index]["image_url"]}',
+                headers: {
+                  'Authorization': 'Bearer $_token',
+                },
+                errorBuilder: (BuildContext context, Object exception, StackTrace? stackTrace) {
+                  return Text('Can not load image');
+                },
+              ),
+              footer: GridTileBar(
+                backgroundColor: Colors.black54,
+                title: Text('Photo ${_photos[index]["id"]}'),
+                trailing: IconButton(
+                  icon: Icon(Icons.comment),
+                  onPressed: () => _commentOnPhoto(_photos[index]["id"]),
+                ),
+              ),
+            ),
           );
         },
       ),
