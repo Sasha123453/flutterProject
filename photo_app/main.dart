@@ -6,7 +6,7 @@ import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 
 String? _token = "";
-final String address = "https://97f3de29c550d1.lhr.life";
+final String address = "https://dc555ac609307d.lhr.life";
 
 void main() {
   runApp(MyApp());
@@ -244,6 +244,7 @@ class _PhotoListPageState extends State<PhotoListPage> {
 
     if (response.statusCode == 200) {
       print('Photo liked successfully');
+      _fetchPhotos();
     } else {
       print('Failed to like photo');
     }
@@ -279,6 +280,7 @@ class _PhotoListPageState extends State<PhotoListPage> {
                 if (response.statusCode == 200) {
                   Navigator.of(context).pop();
                   print('Comment posted successfully');
+                  _fetchPhotos();
                 } else {
                   print('Failed to post comment');
                 }
@@ -289,6 +291,51 @@ class _PhotoListPageState extends State<PhotoListPage> {
         );
       },
     );
+  }
+
+  Future<void> _showComments(int photoId) async {
+    final response = await http.get(
+      Uri.parse('$address/photo/comment/$photoId'),
+      headers: {
+        'Authorization': 'Bearer $_token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> comments = jsonDecode(response.body);
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Text('Comments'),
+            content: SingleChildScrollView(
+              child: ListBody(
+                children: comments.map((comment) {
+                  return ListTile(
+                    title: Text(comment['text']),
+                    subtitle: Text('By: ${comment['username']}'),
+                  );
+                }).toList(),
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: Text('Close'),
+              ),
+              TextButton(
+                onPressed: () => _commentOnPhoto(photoId),
+                child: Text('Add Comment'),
+              ),
+            ],
+          );
+        },
+      );
+    } else {
+      print('Failed to load comments');
+    }
   }
 
   @override
@@ -310,7 +357,7 @@ class _PhotoListPageState extends State<PhotoListPage> {
         itemCount: _photos.length,
         itemBuilder: (context, index) {
           return GestureDetector(
-            onTap: () => _likePhoto(_photos[index]["id"]),
+            onTap: () => _likePhoto(_photos[index]["ID"]),
             child: GridTile(
               child: Image.network(
                 '$address/photo/path?path=${_photos[index]["image_url"]}',
@@ -323,10 +370,11 @@ class _PhotoListPageState extends State<PhotoListPage> {
               ),
               footer: GridTileBar(
                 backgroundColor: Colors.black54,
-                title: Text('Photo ${_photos[index]["id"]}'),
+                title: Text('Photo ${_photos[index]["image_url"]}'),
+                subtitle: Text('Likes: ${_photos[index]["likes"]}'),
                 trailing: IconButton(
                   icon: Icon(Icons.comment),
-                  onPressed: () => _commentOnPhoto(_photos[index]["id"]),
+                  onPressed: () => _showComments(_photos[index]["ID"]),
                 ),
               ),
             ),
